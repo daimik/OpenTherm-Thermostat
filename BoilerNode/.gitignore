@@ -1,0 +1,5 @@
+.pio/
+.vscode/
+include/ble_key.h
+include/node_secrets.h
+*.bin

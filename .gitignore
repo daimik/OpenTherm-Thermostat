@@ -1,0 +1,15 @@
+# Your own settings: never commit these
+Thermostat/include/secrets.h
+Thermostat/include/ble_key.h
+BoilerNode/include/ble_key.h
+BoilerNode/include/node_secrets.h
+**/secrets.h
+**/ble_key.h
+**/node_secrets.h
+
+# Build output and editor files
+.pio/
+.vscode/
+*.bin
+*.elf
+__pycache__/

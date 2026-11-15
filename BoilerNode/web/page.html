@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CV-Boiler node</title>
+<style>
+:root{--bg:#0d1117;--card:#151b23;--line:#27303b;--tx:#e6ebf2;--mu:#8b97a8;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--heat:#ff8a3d;--cool:#4cc2ff;--sp:#b392f0}
+@media(prefers-color-scheme:light){:root{--bg:#f3f5f8;--card:#fff;--line:#d8dde5;--tx:#17202b;--mu:#5c6878;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--heat:#d9601a;--cool:#0a7bbd;--sp:#6f42c1}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.mono,td:last-child,#log{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+header{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline;padding:14px 16px 6px}
+h1{font-size:18px;margin:0;font-weight:600}
+header span{color:var(--mu)}
+#live{margin-left:auto}
+#live:before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px}
+#live.dead{color:var(--bad)}#live.dead:before{background:var(--bad)}
+#chips{display:flex;flex-wrap:wrap;gap:6px;padding:6px 16px 10px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--mu)}
+.chip.ok{color:var(--ok);border-color:var(--ok)}.chip.warn{color:var(--warn);border-color:var(--warn)}
+.chip.bad{color:var(--bad);border-color:var(--bad)}.chip.heat{color:var(--heat);border-color:var(--heat)}
+.chip.cool{color:var(--cool);border-color:var(--cool)}
+main{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:10px;padding:0 16px 16px}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
+section.wide{grid-column:1/-1}
+h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mu);margin:0 0 6px;font-weight:600}
+table{width:100%;border-collapse:collapse}
+td{padding:2px 0;vertical-align:top}
+td:first-child{color:var(--mu);padding-right:10px}
+td:last-child{text-align:right;word-break:break-word}
+td.warn{color:var(--warn)}td.bad{color:var(--bad)}td.ok{color:var(--ok)}
+canvas{width:100%;height:220px;display:block}
+.leg{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--mu);margin-bottom:4px}
+.leg i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px}
+.bar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:6px;font-size:12px;color:var(--mu)}
+.bar input[type=text]{background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font:inherit;width:150px}
+a{color:var(--cool)}
+#log{height:46vh;min-height:200px;overflow:auto;font-size:12px;line-height:1.5;border-top:1px solid var(--line);padding-top:6px}
+#log div{white-space:pre-wrap;word-break:break-word}
+#log b{color:var(--mu);font-weight:400;margin-right:8px}
+#log .warn{color:var(--warn)}#log .bad{color:var(--bad)}
+footer{color:var(--mu);font-size:12px;padding:0 16px 20px}
+</style>
+</head>
+<body>
+<header><h1>CV-Boiler node</h1><span id="sub">connecting</span><span id="live">live</span></header>
+<div id="chips"></div>
+<main id="cards">
+<section class="wide"><h2>Last hour</h2>
+<div class="leg"><span><i style="background:var(--heat)"></i>flow</span><span><i style="background:var(--cool)"></i>return</span><span><i style="background:var(--sp)"></i>setpoint sent</span><span><i style="background:var(--heat);opacity:.35;height:8px"></i>modulation, flame</span></div>
+<canvas id="cv"></canvas></section>
+<section class="wide"><h2>Event log</h2>
+<div class="bar"><label><input type="checkbox" id="follow" checked> follow</label><input type="text" id="flt" placeholder="filter"><span id="lc"></span><a href="/log.txt" target="_blank">open as text</a><a href="/api/status" target="_blank">status JSON</a></div>
+<div id="log"></div></section>
+</main>
+<footer>Read-only page. Nothing here can change the heating. The node keeps the last 200 events and one hour of samples in memory; both are lost at a restart.</footer>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const n1=v=>v==null?"–":v.toFixed(1);
+const deg=v=>v==null?"–":v.toFixed(1)+" °C";
+const yn=v=>v?"yes":"no";
+function dur(s){s=Math.floor(s);const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+ return d?d+" d "+h+" h":h?h+" h "+String(m).padStart(2,"0")+" min":m?m+" min "+String(s%60).padStart(2,"0")+" s":s+" s"}
+const hms=e=>new Date(e*1000).toLocaleTimeString([],{hour12:false});
+function pct(a,b){return a+b?(100*a/(a+b)).toFixed(a+b>999?2:1)+" %":"–"}
+const CARDS=[
+["Boiler",[
+ ["Flow",s=>deg(s.boiler.flow)],["Return",s=>deg(s.boiler.ret)],
+ ["Difference",s=>s.boiler.flow==null||s.boiler.ret==null?"–":(s.boiler.flow-s.boiler.ret).toFixed(1)+" K"],
+ ["Hot water",s=>deg(s.boiler.dhwt)],["Pressure",s=>s.boiler.pressure==null?"–":s.boiler.pressure.toFixed(2)+" bar",s=>s.boiler.pressure!=null&&s.boiler.pressure<1?"warn":""],
+ ["Modulation",s=>s.boiler.mod+" %"],["Outside sensor",s=>deg(s.boiler.outside)],
+ ["Burner starts since boot",s=>s.boiler.starts],["Burner on since boot",s=>dur(s.boiler.burn)],
+ ["Fault",s=>s.boiler.fault?"E."+String(s.boiler.oemfault).padStart(2,"0")+" flags 0x"+s.boiler.faultflags.toString(16):s.boiler.diag?"H."+s.boiler.oemdiag:"none",s=>s.boiler.fault?"bad":s.boiler.diag?"warn":""]]],
+["Control",[
+ ["Display asks: heating",s=>s.ctl.have?(s.ctl.ch?"on":"off"):"–"],["Display asks: flow",s=>s.ctl.have?deg(s.ctl.flow):"–"],
+ ["Display asks: hot water",s=>s.ctl.have?(s.ctl.dhw?"on":"off")+(s.ctl.dhwsp?" at "+n1(s.ctl.dhwsp):""):"–"],
+ ["Last control frame",s=>s.ctl.have?dur(s.ctl.age)+" ago":"none since boot",s=>!s.ctl.have||s.ctl.age>120?"warn":""],
+ ["Control frames",s=>s.ctl.frames],
+ ["Node sends: heating",s=>s.out.ch?"on":"off"],["Node sends: setpoint",s=>deg(s.out.sp)],
+ ["Safety layer",s=>[s.out.fallback&&"fallback",s.out.frost&&"frost guard",s.out.clamped&&"limited",s.out.hold&&"hold"].filter(Boolean).join(", ")||"passing through",s=>s.out.fallback||s.out.frost?"warn":""]]],
+["OpenTherm",[
+ ["Boiler",s=>s.boiler.sim?"simulated":s.boiler.link?"answering":"silent",s=>s.boiler.sim?"warn":s.boiler.link?"ok":"bad"],
+ ["Last exchange",s=>s.ot.last||"none yet",s=>s.ot.last=="ok"||s.boiler.sim?"":"bad"],
+ ["Status exchanges ok",s=>s.ot.ok],["Timeouts",s=>s.ot.timeout,s=>s.ot.timeout?"warn":""],["Invalid frames",s=>s.ot.invalid,s=>s.ot.invalid?"warn":""],
+ ["Success rate",s=>pct(s.ot.ok,s.ot.timeout+s.ot.invalid)],["Failed readings",s=>s.ot.readerr],
+ ["Not provided by boiler",s=>["hot water temp","pressure","outside temp"].filter((n,i)=>s.ot.missing>>i&1).join(", ")||"nothing missing"],
+ ["Edges received",s=>s.ot.edges],["Pins RX / TX",s=>"GPIO"+s.ot.pinrx+" / GPIO"+s.ot.pintx]]],
+["Bluetooth",[
+ ["State",s=>s.ble.state,s=>s.ble.state=="session"?"ok":"warn"],["Paired display",s=>s.ble.peer||"none yet"],
+ ["Sessions since boot",s=>s.ble.sessions],["Disconnects",s=>s.ble.drops],["Last disconnect reason",s=>s.ble.drops?s.ble.reason:"–"],
+ ["Rejected frames",s=>s.ble.rejected,s=>s.ble.rejected?"warn":""],["Unauthenticated streak",s=>s.ble.streak,s=>s.ble.streak?"warn":""]]],
+["Node",[
+ ["Build",s=>s.build],["Uptime",s=>dur(s.up)],["Last reset",s=>s.reset,s=>/power|software|usb/.test(s.reset)?"":"warn"],
+ ["Clock",s=>s.epoch?new Date(s.epoch*1000).toLocaleString([],{hour12:false}):"not set"],
+ ["Free memory",s=>(s.heap/1024).toFixed(0)+" kB (low mark "+(s.heapmin/1024).toFixed(0)+")"],
+ ["Wi-Fi",s=>s.wifi.ssid+" ch "+s.wifi.ch],["Access point",s=>s.wifi.bssid],["Signal",s=>s.wifi.rssi+" dBm",s=>s.wifi.rssi<-80?"warn":""],["Address",s=>s.wifi.ip]]],
+["Node limits",[
+ ["Flow setpoint range",s=>s.lim.min+" to "+s.lim.max+" °C"],["Minimum on / off time",s=>dur(s.lim.minon)+" / "+dur(s.lim.minoff)],
+ ["Fallback",s=>s.lim.fb+" °C after "+dur(s.lim.fbafter)+" without control"],
+ ["Frost guard",s=>"on below "+s.lim.froston+", off above "+s.lim.frostoff+" °C"]]]];
+const CHIPS=[
+ s=>s.boiler.sim?["boiler simulated","warn"]:s.boiler.link?["boiler link","ok"]:["boiler silent","bad"],
+ s=>s.ble.state=="session"?["display in session","ok"]:["display: "+s.ble.state,"warn"],
+ s=>["flame "+(s.boiler.flame?"on":"off"),s.boiler.flame?"heat":""],
+ s=>["heating "+(s.out.ch?"enabled":"off"),s.out.ch?"heat":""],
+ s=>s.boiler.dhw&&["hot water","cool"],s=>s.out.fallback&&["fallback","warn"],s=>s.out.frost&&["frost guard","warn"],
+ s=>s.out.hold&&["hold","warn"],s=>s.out.clamped&&["setpoint limited","warn"],s=>s.boiler.fault&&["boiler fault","bad"]];
+const cells=[];
+(function build(){const first=$("cards").firstElementChild;
+ for(const[title,rows]of CARDS){const sec=document.createElement("section"),h=document.createElement("h2"),t=document.createElement("table");
+  h.textContent=title;sec.append(h,t);
+  for(const[label,val,cls]of rows){const r=t.insertRow(),a=r.insertCell(),b=r.insertCell();a.textContent=label;b.textContent="–";cells.push([b,val,cls])}
+  $("cards").insertBefore(sec,first)}})();
+function render(s){
+ $("sub").textContent=s.build+" · up "+dur(s.up)+(s.epoch?" · "+hms(s.epoch):"");
+ for(const[c,val,cls]of cells){let v;try{v=val(s)}catch(e){v="?"}c.textContent=v;c.className=cls?cls(s):""}
+ const box=$("chips");box.textContent="";
+ for(const f of CHIPS){const r=f(s);if(!r)continue;const e=document.createElement("span");e.className="chip "+r[1];e.textContent=r[0];box.append(e)}}
+let boot=null,since=0,shown=0;
+function addLines(j){
+ const box=$("log"),flt=$("flt").value.toLowerCase();
+ for(const[seq,ms,text]of j.lines){
+  const age=((j.now-ms)>>>0)/1000,d=document.createElement("div"),b=document.createElement("b");
+  b.textContent=j.epoch?hms(j.epoch-age):"+"+dur(ms/1000);
+  d.append(b,text);d.dataset.t=text.toLowerCase();
+  if(/fault|lost|failed|wrong|malformed|impostor/i.test(text))d.className="bad";
+  else if(/fallback|frost|hold|limited|rejected|timeout|dropping|disconnected|out of range/i.test(text))d.className="warn";
+  if(flt&&!d.dataset.t.includes(flt))d.hidden=true;
+  box.append(d);since=seq;shown++}
+ while(box.childElementCount>600)box.firstElementChild.remove();
+ $("lc").textContent=shown+" events";
+ if(j.lines.length&&$("follow").checked)box.scrollTop=box.scrollHeight}
+$("flt").oninput=()=>{const f=$("flt").value.toLowerCase();for(const d of $("log").children)d.hidden=!!f&&!d.dataset.t.includes(f)};
+let H=null;
+function draw(){
+ const cv=$("cv"),r=window.devicePixelRatio||1,W=cv.clientWidth,Ht=cv.clientHeight;
+ if(!W)return;cv.width=W*r;cv.height=Ht*r;const g=cv.getContext("2d");g.scale(r,r);
+ const css=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
+ const L=34,R=8,T=8,B=20,pw=W-L-R,ph=Ht-T-B;g.font="11px system-ui,sans-serif";g.fillStyle=css("--mu");
+ if(!H||H.flow.length<2){g.fillText("collecting samples, one every "+(H?H.step:10)+" s",L,T+20);return}
+ const N=H.flow.length,span=3600/H.step,ok=v=>v>-1000&&v!==0;
+ let lo=200,hi=600;for(const a of[H.flow,H.ret,H.sp])for(const v of a)if(ok(v)){lo=Math.min(lo,v);hi=Math.max(hi,v)}
+ lo=Math.floor(lo/100)*100;hi=Math.ceil(hi/100)*100;if(hi==lo)hi=lo+100;
+ const x=i=>L+pw*(span-(N-1-i))/span,y=v=>T+ph*(1-(v-lo)/(hi-lo));
+ g.strokeStyle=css("--line");g.lineWidth=1;g.textAlign="right";
+ for(let v=lo;v<=hi;v+=100){g.beginPath();g.moveTo(L,y(v)+.5);g.lineTo(W-R,y(v)+.5);g.stroke();g.fillText(v/10,L-6,y(v)+4)}
+ g.textAlign="center";for(let m=0;m<=60;m+=15){const px=L+pw*(1-m/60);g.fillText(m?"-"+m+" min":"now",Math.min(Math.max(px,L+14),W-R-12),Ht-5)}
+ g.fillStyle=css("--heat");g.globalAlpha=.3;
+ for(let i=0;i<N;i++){const w=Math.max(pw/span,1);
+  if(H.mod[i]>0)g.fillRect(x(i)-w/2,T+ph-ph*.25*H.mod[i]/100,w,ph*.25*H.mod[i]/100);
+  if(H.fl[i]&1)g.fillRect(x(i)-w/2,T+ph-3,w,3)}
+ g.globalAlpha=1;
+ const line=(a,col,dash)=>{g.strokeStyle=css(col);g.lineWidth=1.6;g.setLineDash(dash||[]);g.beginPath();let pen=false;
+  for(let i=0;i<N;i++){if(!ok(a[i])){pen=false;continue}pen?g.lineTo(x(i),y(a[i])):g.moveTo(x(i),y(a[i]));pen=true}g.stroke();g.setLineDash([])};
+ line(H.sp,"--sp",[5,4]);line(H.ret,"--cool");line(H.flow,"--heat")}
+addEventListener("resize",draw);
+async function get(u){const r=await fetch(u,{cache:"no-store"});if(!r.ok)throw new Error(r.status);return r.json()}
+let lastOk=Date.now(),round=0;
+async function loop(){
+ try{
+  const s=await get("/api/status");
+  if(boot!==null&&s.boot!==boot){since=0;shown=0;$("log").textContent="";H=null}
+  boot=s.boot;render(s);
+  addLines(await get("/api/log?since="+since));
+  if(round++%5==0){H=await get("/api/history");draw()}
+  lastOk=Date.now();$("live").className="";$("live").textContent="live";
+ }catch(e){const a=Math.round((Date.now()-lastOk)/1000);$("live").className="dead";$("live").textContent="no answer for "+a+" s"}
+ setTimeout(loop,2000)}
+loop();
+</script>
+</body>
+</html>

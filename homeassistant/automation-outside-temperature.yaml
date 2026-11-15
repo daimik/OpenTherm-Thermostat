@@ -1,0 +1,21 @@
+# Pushes the outdoor temperature to the thermostat: top bar and heating curve.
+# Append to /config/automations.yaml (or paste into the UI YAML editor without the leading "- " and indent),
+# then replace the weather entity with your own. A plain sensor works too: use states('sensor.x') as payload.
+- id: thermostat_outside_temperature
+  alias: Thermostat outside temperature
+  description: Push outdoor temperature to the thermostat display over MQTT
+  triggers:
+  - trigger: state
+    entity_id: weather.home
+    attribute: temperature
+  - trigger: time_pattern
+    minutes: /15
+  - trigger: homeassistant
+    event: start
+  conditions: []
+  actions:
+  - action: mqtt.publish
+    data:
+      topic: cv/thermostat/set/outside
+      payload: "{{ state_attr('weather.home', 'temperature') }}"
+  mode: single

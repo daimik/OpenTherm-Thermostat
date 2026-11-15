@@ -1,0 +1,211 @@
+# CV Thermostat dashboard view. Built-in cards only, no HACS needed.
+# Use: Dashboard -> pencil -> "+" add view -> three dots -> "Edit in YAML" -> paste everything below.
+# If an entity shows "Entity not found", open Settings -> Devices -> MQTT -> CV Thermostat,
+# click the entity and copy its real entity ID into this file.
+
+title: Heating
+path: heating
+icon: mdi:radiator
+type: sections
+max_columns: 3
+sections:
+  - type: grid
+    cards:
+      - type: heading
+        heading: Thermostat
+        icon: mdi:thermostat
+      - type: thermostat
+        entity: climate.cv_thermostat
+        show_current_as_primary: true
+        features:
+          - type: climate-hvac-modes
+            hvac_modes:
+              - "off"
+              - heat
+              - auto
+        grid_options:
+          columns: 12
+      - type: tile
+        entity: climate.cv_thermostat
+        name: Mode
+        state_content:
+          - hvac_action
+          - temperature
+        features:
+          - type: target-temperature
+        grid_options:
+          columns: 12
+      - type: tile
+        entity: sensor.cv_thermostat_humidity
+        name: Humidity
+        icon: mdi:water-percent
+        grid_options:
+          columns: 6
+      - type: tile
+        entity: binary_sensor.cv_thermostat_flame
+        name: Flame
+        icon: mdi:fire
+        color: deep-orange
+        grid_options:
+          columns: 6
+
+  - type: grid
+    cards:
+      - type: heading
+        heading: Boiler
+        icon: mdi:water-boiler
+      - type: tile
+        entity: sensor.cv_thermostat_radiator_water
+        name: Radiators
+        icon: mdi:radiator
+        color: orange
+        grid_options:
+          columns: 6
+      - type: tile
+        entity: sensor.cv_thermostat_return_water
+        name: Return
+        icon: mdi:keyboard-return
+        color: light-blue
+        grid_options:
+          columns: 6
+      - type: tile
+        entity: sensor.cv_thermostat_hot_water
+        name: Hot water
+        icon: mdi:water-thermometer
+        grid_options:
+          columns: 6
+      - type: tile
+        entity: sensor.cv_thermostat_boiler_pressure
+        name: Pressure
+        icon: mdi:gauge
+        color: green
+        grid_options:
+          columns: 6
+      - type: gauge
+        entity: sensor.cv_thermostat_modulation
+        name: Modulation
+        min: 0
+        max: 100
+        needle: false
+        severity:
+          green: 0
+          yellow: 60
+          red: 90
+        grid_options:
+          columns: 6
+      - type: gauge
+        entity: sensor.cv_thermostat_boiler_pressure
+        name: Pressure
+        min: 0
+        max: 3
+        needle: true
+        segments:
+          - from: 0
+            color: "#db4437"
+          - from: 1
+            color: "#43a047"
+          - from: 2.2
+            color: "#ffa600"
+          - from: 2.6
+            color: "#db4437"
+        grid_options:
+          columns: 6
+
+  - type: grid
+    cards:
+      - type: heading
+        heading: Status
+        icon: mdi:information-outline
+      - type: entities
+        show_header_toggle: false
+        entities:
+          - entity: binary_sensor.cv_thermostat_boiler_link
+            name: Boiler link (BLE)
+          - entity: binary_sensor.cv_thermostat_boiler_fault
+            name: Boiler fault
+          - entity: sensor.cv_thermostat_boiler_fault_code
+            name: Fault code
+          - entity: sensor.cv_thermostat_wi_fi_signal
+            name: Wi-Fi signal
+        grid_options:
+          columns: 12
+
+  - type: grid
+    cards:
+      - type: heading
+        heading: Control and health
+        icon: mdi:shield-check
+      - type: tile
+        entity: sensor.cv_thermostat_flow_request
+        name: Flow request
+        icon: mdi:thermometer-chevron-up
+        grid_options:
+          columns: 6
+      - type: tile
+        entity: binary_sensor.cv_thermostat_preheating
+        name: Preheating
+        icon: mdi:clock-fast
+        grid_options:
+          columns: 6
+      - type: entities
+        show_header_toggle: false
+        entities:
+          - entity: binary_sensor.cv_thermostat_boiler_node_in_fallback
+            name: Node in fallback
+          - entity: binary_sensor.cv_thermostat_room_sensor_fault
+            name: Room sensor fault
+          - entity: binary_sensor.cv_thermostat_frost_protection_active
+            name: Frost protection
+          - entity: sensor.cv_thermostat_boiler_link_signal
+            name: Boiler link signal
+          - entity: sensor.cv_thermostat_boiler_link_reconnects
+            name: Boiler link reconnects
+          - entity: sensor.cv_thermostat_learned_warm_up_rate
+            name: Learned warm-up rate
+          - entity: sensor.cv_thermostat_outdoor_temperature_used
+            name: Outdoor temperature used
+          - entity: sensor.cv_thermostat_last_reset_reason
+            name: Last reset reason
+          - entity: sensor.cv_thermostat_uptime
+            name: Uptime
+          - entity: sensor.cv_thermostat_free_memory_minimum
+            name: Free memory minimum
+        grid_options:
+          columns: 12
+
+  - type: grid
+    column_span: 3
+    cards:
+      - type: heading
+        heading: History
+        icon: mdi:chart-line
+      - type: history-graph
+        title: Room and target
+        hours_to_show: 24
+        entities:
+          - entity: climate.cv_thermostat
+            name: Thermostat
+        grid_options:
+          columns: 24
+      - type: history-graph
+        title: Water temperatures
+        hours_to_show: 24
+        entities:
+          - entity: sensor.cv_thermostat_radiator_water
+            name: Radiators
+          - entity: sensor.cv_thermostat_return_water
+            name: Return
+          - entity: sensor.cv_thermostat_hot_water
+            name: Hot water
+        grid_options:
+          columns: 24
+      - type: history-graph
+        title: Burner
+        hours_to_show: 24
+        entities:
+          - entity: binary_sensor.cv_thermostat_flame
+            name: Flame
+          - entity: sensor.cv_thermostat_modulation
+            name: Modulation
+        grid_options:
+          columns: 24

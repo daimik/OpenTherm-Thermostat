@@ -1,0 +1,116 @@
+# Alerts for the things that need a human. Append to /config/automations.yaml and reload automations.
+# Uses a notify.gotify service; replace it with your own, for example notify.mobile_app_yourphone.
+# Entity IDs are what Home Assistant generates from the names the thermostat announces.
+
+- id: thermostat_alert_fallback
+  alias: Thermostat alert - boiler node in fallback
+  description: The display is not controlling the boiler; the node is holding a fixed 45 C flow.
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.cv_thermostat_boiler_node_in_fallback
+    to: 'on'
+    for: '00:05:00'
+  actions:
+  - action: notify.gotify
+    data:
+      title: Heating running in fallback
+      message: The boiler node has had no commands from the thermostat for over 10 minutes and is holding 45 C. Check the display and the Bluetooth link.
+  mode: single
+
+- id: thermostat_alert_link
+  alias: Thermostat alert - boiler link lost
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.cv_thermostat_boiler_link
+    to: 'off'
+    for: '00:10:00'
+  actions:
+  - action: notify.gotify
+    data:
+      title: Thermostat lost the boiler node
+      message: No authenticated Bluetooth session for 10 minutes. The node heats in fallback on its own.
+  mode: single
+
+- id: thermostat_alert_sensor
+  alias: Thermostat alert - room sensor fault
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.cv_thermostat_room_sensor_fault
+    to: 'on'
+    for: '00:02:00'
+  actions:
+  - action: notify.gotify
+    data:
+      title: Thermostat room sensor fault
+      message: No plausible room temperature. Heating is held at a low fixed flow temperature until the sensor recovers.
+  mode: single
+
+- id: thermostat_alert_boiler_fault
+  alias: Thermostat alert - boiler fault
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.cv_thermostat_boiler_fault
+    to: 'on'
+  actions:
+  - action: notify.gotify
+    data:
+      title: Boiler reports a fault
+      message: "Code {{ states('sensor.cv_thermostat_boiler_fault_code') }}. Check the boiler display."
+  mode: single
+
+- id: thermostat_alert_pressure
+  alias: Thermostat alert - boiler pressure low
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.cv_thermostat_boiler_pressure
+    below: 1.0
+    for: '00:15:00'
+  actions:
+  - action: notify.gotify
+    data:
+      title: Boiler water pressure low
+      message: "Pressure is {{ states('sensor.cv_thermostat_boiler_pressure') }} bar. Top up to 1.5 - 2.0 bar."
+  mode: single
+
+- id: thermostat_alert_frost
+  alias: Thermostat alert - frost protection active
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.cv_thermostat_frost_protection_active
+    to: 'on'
+  actions:
+  - action: notify.gotify
+    data:
+      title: Frost protection is heating
+      message: The room or the heating water dropped close to freezing while heating was off.
+  mode: single
+
+- id: thermostat_alert_offline
+  alias: Thermostat alert - display offline
+  triggers:
+  - trigger: state
+    entity_id: climate.cv_thermostat
+    to: unavailable
+    for: '00:15:00'
+  actions:
+  - action: notify.gotify
+    data:
+      title: Thermostat offline in Home Assistant
+      message: No MQTT contact for 15 minutes. Heating itself does not depend on it; check Wi-Fi and the broker.
+  mode: single
+
+- id: thermostat_alert_safe_mode
+  alias: Thermostat alert - safe mode or crash
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.cv_thermostat_safe_mode
+    to: 'on'
+  - trigger: numeric_state
+    entity_id: sensor.cv_thermostat_crash_count
+    above: 0
+  actions:
+  - action: notify.gotify
+    data:
+      title: Thermostat display problem
+      message: "Reset reason: {{ states('sensor.cv_thermostat_last_reset_reason') }}, crashes in a row: {{ states('sensor.cv_thermostat_crash_count') }}."
+  mode: single

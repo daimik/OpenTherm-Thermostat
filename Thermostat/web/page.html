@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CV Thermostat</title>
+<style>
+:root{--bg:#0d1117;--card:#151b23;--line:#27303b;--tx:#e6ebf2;--mu:#8b97a8;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--heat:#ff8a3d;--cool:#4cc2ff;--sp:#b392f0}
+@media(prefers-color-scheme:light){:root{--bg:#f3f5f8;--card:#fff;--line:#d8dde5;--tx:#17202b;--mu:#5c6878;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;--heat:#d9601a;--cool:#0a7bbd;--sp:#6f42c1}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.mono,td:last-child,#log{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+header{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline;padding:14px 16px 6px}
+h1{font-size:18px;margin:0;font-weight:600}
+header span{color:var(--mu)}
+#live{margin-left:auto}
+#live:before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px}
+#live.dead{color:var(--bad)}#live.dead:before{background:var(--bad)}
+#chips{display:flex;flex-wrap:wrap;gap:6px;padding:6px 16px 10px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--mu)}
+.chip.ok{color:var(--ok);border-color:var(--ok)}.chip.warn{color:var(--warn);border-color:var(--warn)}
+.chip.bad{color:var(--bad);border-color:var(--bad)}.chip.heat{color:var(--heat);border-color:var(--heat)}
+.chip.cool{color:var(--cool);border-color:var(--cool)}
+main{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:10px;padding:0 16px 16px}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
+section.wide{grid-column:1/-1}
+h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mu);margin:0 0 6px;font-weight:600}
+table{width:100%;border-collapse:collapse}
+td{padding:2px 0;vertical-align:top}
+td:first-child{color:var(--mu);padding-right:10px}
+td:last-child{text-align:right;word-break:break-word}
+td.warn{color:var(--warn)}td.bad{color:var(--bad)}td.ok{color:var(--ok)}
+canvas{width:100%;height:200px;display:block}
+.leg{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--mu);margin-bottom:4px}
+.leg i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px}
+.bar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:6px;font-size:12px;color:var(--mu)}
+.bar input[type=text]{background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font:inherit;width:150px}
+a{color:var(--cool)}
+#log{height:46vh;min-height:200px;overflow:auto;font-size:12px;line-height:1.5;border-top:1px solid var(--line);padding-top:6px}
+#log div{white-space:pre-wrap;word-break:break-word}
+#log b{color:var(--mu);font-weight:400;margin-right:8px}
+#log .warn{color:var(--warn)}#log .bad{color:var(--bad)}
+footer{color:var(--mu);font-size:12px;padding:0 16px 20px}
+</style>
+</head>
+<body>
+<header><h1>CV Thermostat display</h1><span id="sub">connecting</span><span id="live">live</span></header>
+<div id="chips"></div>
+<main id="cards">
+<section class="wide"><h2>Room, last 24 hours</h2>
+<div class="leg"><span><i style="background:var(--tx)"></i>room</span><span><i style="background:var(--sp)"></i>target</span><span><i style="background:var(--heat);opacity:.35;height:8px"></i>heating asked</span></div>
+<canvas id="c1"></canvas></section>
+<section class="wide"><h2>Boiler, last 24 hours</h2>
+<div class="leg"><span><i style="background:var(--heat)"></i>flow</span><span><i style="background:var(--cool)"></i>return</span><span><i style="background:var(--sp)"></i>flow asked</span><span><i style="background:var(--mu)"></i>outside</span><span><i style="background:var(--heat);opacity:.35;height:8px"></i>modulation, flame</span></div>
+<canvas id="c2"></canvas></section>
+<section class="wide"><h2>Event log</h2>
+<div class="bar"><label><input type="checkbox" id="follow" checked> follow</label><input type="text" id="flt" placeholder="filter"><span id="lc"></span><a href="/log.txt" target="_blank">open as text</a><a href="/api/status" target="_blank">status JSON</a></div>
+<div id="log"></div></section>
+</main>
+<footer>Read-only page. Nothing here can change the heating. The display keeps the last 300 events and 24 hours of samples in memory; both are lost at a restart.</footer>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const D="\u2013";
+const deg=v=>v==null?D:v.toFixed(1)+" \u00b0C";
+const kel=v=>v==null?D:(v>0?"+":"")+v.toFixed(2)+" K";
+const onoff=v=>v?"on":"off";
+function dur(s){s=Math.floor(s);const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+ return d?d+" d "+h+" h":h?h+" h "+String(m).padStart(2,"0")+" min":m?m+" min "+String(s%60).padStart(2,"0")+" s":s+" s"}
+const hms=e=>new Date(e*1000).toLocaleTimeString([],{hour12:false});
+const hm=m=>String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");
+const MODE={auto:"Auto",manual:"Manual",off:"Off"};
+function state(s){return s.room.fault&&s.set.heating?"heating without sensor":s.set.frost?"frost guard":s.set.preheat?"preheating":s.set.heating?"heating":"idle"}
+function sched(s,k,i){const b=s.sched[k][i];return hm(b[0])+"  "+(b[1]/10).toFixed(1)+" \u00b0C"}
+const CARDS=[
+["Room",[
+ ["Temperature",s=>s.room.ok?deg(s.room.t):D,s=>s.room.fault?"bad":""],["Humidity",s=>s.room.ok?s.room.h.toFixed(0)+" %":D],
+ ["Target",s=>s.set.mode=="off"?"off":deg(s.set.target)],["Mode",s=>MODE[s.set.mode]],["State",s=>state(s),s=>s.set.frost||s.room.fault?"warn":""],
+ ["Sensor",s=>s.room.fault?(s.room.present?"fault, no plausible reading":"not found"):"SHT4x ok",s=>s.room.fault?"bad":"ok"],
+ ["Last raw reading",s=>s.room.present?deg(s.room.raw):D],["Refused readings",s=>s.room.rejects,s=>s.room.rejects>20?"warn":""],
+ ["Calibration offset",s=>(s.room.offset>0?"+":"")+s.room.offset.toFixed(1)+" K"]]],
+["Control loop",[
+ ["Heat demand",s=>onoff(s.ctl.demand)],["Target minus room",s=>s.room.ok&&s.set.mode!="off"?kel(s.ctl.err):D],
+ ["Switches on / off at",s=>"-"+s.lim.hon+" K / +"+s.lim.hoff+" K"],
+ ["Flow base",s=>deg(s.ctl.base)+(s.ctl.outside==null?" (fixed)":" (curve)")],
+ ["Proportional part",s=>s.ctl.demand?kel(s.ctl.p).replace(" K"," \u00b0C"):D],["Integral part",s=>s.ctl.demand?kel(s.ctl.i).replace(" K"," \u00b0C"):D],
+ ["Flow asked",s=>s.set.heating?deg(s.ctl.req):"none"],["Flow limits",s=>s.lim.fmin+" to "+s.lim.fmax+" \u00b0C"],
+ ["Outside",s=>s.ctl.outside==null?"no fresh value":deg(s.ctl.outside)+", "+dur(s.ctl.outage)+" old",s=>s.ctl.outside==null?"warn":""],
+ ["Learned warm-up rate",s=>s.set.rate.toFixed(2)+" K per hour"]]],
+["Schedule",[
+ ["Following schedule",s=>s.set.auto?(s.set.override?"overridden by hand":"yes"):s.set.mode!="auto"?"no, mode is "+MODE[s.set.mode]:"no, clock not set",s=>s.set.mode=="auto"&&!s.set.auto?"warn":""],
+ ["Next change",s=>s.set.auto?hm(s.set.next):D],["Preheat",s=>s.set.preheat?"running":"no"],
+ ["Mon-Fri "+"Wake",s=>sched(s,"wd",0)],["Mon-Fri "+"Away",s=>sched(s,"wd",1)],["Mon-Fri "+"Home",s=>sched(s,"wd",2)],["Mon-Fri "+"Night",s=>sched(s,"wd",3)],
+ ["Sat-Sun "+"Wake",s=>sched(s,"we",0)],["Sat-Sun "+"Away",s=>sched(s,"we",1)],["Sat-Sun "+"Home",s=>sched(s,"we",2)],["Sat-Sun "+"Night",s=>sched(s,"we",3)]]],
+["Boiler, as the node reports it",[
+ ["Flow",s=>deg(s.boiler.flow)],["Return",s=>deg(s.boiler.ret)],["Hot water",s=>deg(s.boiler.dhw)],
+ ["Pressure",s=>s.boiler.pressure==null?D:s.boiler.pressure.toFixed(2)+" bar",s=>s.boiler.pressure!=null&&s.boiler.pressure<1?"warn":""],
+ ["Flame",s=>s.boiler.ok?onoff(s.boiler.flame)+(s.boiler.flame?", "+s.boiler.mod+" %":""):D],
+ ["Burner today",s=>dur(s.boiler.burn)],["Gas today (estimate)",s=>s.boiler.gas.toFixed(2)+" m3"],
+ ["Fault",s=>s.boiler.fault?s.boiler.code:"none",s=>s.boiler.fault?"bad":""],
+ ["Node safety layer",s=>[s.boiler.fallback&&"fallback",s.boiler.nfrost&&"frost guard",s.boiler.clamped&&"limited",s.boiler.hold&&"hold"].filter(Boolean).join(", ")||"passing through",s=>s.boiler.fallback||s.boiler.nfrost?"warn":""],
+ ["Boiler",s=>!s.ble.linked?"unknown, no link to the node":s.boiler.sim?"simulated":s.boiler.ok?"answering":"silent",s=>!s.ble.linked||!s.boiler.ok?"bad":s.boiler.sim?"warn":"ok"]]],
+["Links",[
+ ["Bluetooth to node",s=>s.ble.linked?"session, "+s.ble.rssi+" dBm":s.ble.mismatch?"node and display firmware do not match":s.ble.authfail?"node failed authentication":"not linked",s=>s.ble.linked?"ok":"bad"],
+ ["Reconnects since boot",s=>s.ble.reconn,s=>s.ble.reconn>5?"warn":""],["Node paired",s=>s.ble.pinned?"yes":"not yet"],
+ ["Wi-Fi",s=>s.net.ssid+" ch "+s.net.ch],["Access point",s=>s.net.bssid],["Signal",s=>s.net.rssi+" dBm",s=>s.net.rssi<-80?"warn":""],["Address",s=>s.net.ip||D],
+ ["Home Assistant (MQTT)",s=>s.net.mqtt?"online":"offline",s=>s.net.mqtt?"ok":"warn"]]],
+["Device",[
+ ["Uptime",s=>dur(s.up)],["Last reset",s=>s.sys.reset||D,s=>!s.sys.reset||/power|restart/.test(s.sys.reset)?"":"warn"],
+ ["Crashes in a row",s=>s.sys.crashes,s=>s.sys.crashes?"warn":""],["Clock",s=>s.clock||"not set",s=>s.clock?"":"warn"],
+ ["Free memory",s=>(s.sys.heap/1024).toFixed(0)+" kB (low mark "+(s.sys.heapmin/1024).toFixed(0)+")",s=>s.sys.heapmin<20000?"warn":""],
+ ["Free PSRAM",s=>(s.sys.psram/1048576).toFixed(1)+" MB"],
+ ["Slow screen frames",s=>s.sys.slow+(s.sys.slow?", worst "+s.sys.slowmax+" ms":"")],
+ ["Screen",s=>"brightness "+s.sys.bright+" %, sleep screen "+onoff(s.sys.sleep)],["Sound",s=>s.sys.sounds?"on, volume "+s.sys.vol+" %":"off"]]]];
+const CHIPS=[
+ s=>["mode "+MODE[s.set.mode],""],
+ s=>[state(s),s.set.heating?"heat":""],
+ s=>s.room.fault&&["sensor fault","bad"],
+ s=>s.ble.linked?["node linked","ok"]:["node not linked","bad"],
+ s=>s.ble.linked&&(s.boiler.sim?["boiler simulated","warn"]:s.boiler.ok?["boiler answering","ok"]:["boiler silent","bad"]),
+ s=>s.boiler.flame&&["flame on","heat"],
+ s=>s.net.mqtt?["Home Assistant online","ok"]:["Home Assistant offline","warn"],
+ s=>s.boiler.fallback&&["node fallback","warn"],s=>s.boiler.fault&&["boiler fault","bad"]];
+const cells=[];
+(function build(){const first=$("cards").firstElementChild;
+ for(const[title,rows]of CARDS){const sec=document.createElement("section"),h=document.createElement("h2"),t=document.createElement("table");
+  h.textContent=title;sec.append(h,t);
+  for(const[label,val,cls]of rows){const r=t.insertRow(),a=r.insertCell(),b=r.insertCell();a.textContent=label;b.textContent=D;cells.push([b,val,cls])}
+  $("cards").insertBefore(sec,first)}})();
+function render(s){
+ $("sub").textContent="up "+dur(s.up)+(s.clock?" \u00b7 "+s.clock:"");
+ for(const[c,val,cls]of cells){let v;try{v=val(s)}catch(e){v="?"}c.textContent=v;c.className=cls?cls(s):""}
+ const box=$("chips");box.textContent="";
+ for(const f of CHIPS){const r=f(s);if(!r)continue;const e=document.createElement("span");e.className="chip "+r[1];e.textContent=r[0];box.append(e)}}
+let boot=null,since=0,shown=0;
+function addLines(j){
+ const box=$("log"),flt=$("flt").value.toLowerCase();
+ for(const[seq,ms,text]of j.lines){
+  const age=((j.now-ms)>>>0)/1000,d=document.createElement("div"),b=document.createElement("b");
+  b.textContent=j.epoch?hms(j.epoch-age):"+"+dur(ms/1000);
+  d.append(b,text);d.dataset.t=text.toLowerCase();
+  if(/fault|lost|failed|wrong|impostor|safe mode|error/i.test(text))d.className="bad";
+  else if(/fallback|frost|hold|limited|timeout|disconnect|too old|not found|not seen|down for/i.test(text))d.className="warn";
+  if(flt&&!d.dataset.t.includes(flt))d.hidden=true;
+  box.append(d);since=seq;shown++}
+ while(box.childElementCount>800)box.firstElementChild.remove();
+ $("lc").textContent=shown+" events";
+ if(j.lines.length&&$("follow").checked)box.scrollTop=box.scrollHeight}
+$("flt").oninput=()=>{const f=$("flt").value.toLowerCase();for(const d of $("log").children)d.hidden=!!f&&!d.dataset.t.includes(f)};
+let H=null;
+const ok=v=>v>-1000;
+function plot(id,lines,band){
+ const cv=$(id),r=window.devicePixelRatio||1,W=cv.clientWidth,Ht=cv.clientHeight;
+ if(!W)return;cv.width=W*r;cv.height=Ht*r;const g=cv.getContext("2d");g.scale(r,r);
+ const css=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
+ const L=34,R=8,T=8,B=20,pw=W-L-R,ph=Ht-T-B;g.font="11px system-ui,sans-serif";g.fillStyle=css("--mu");
+ if(!H||H.room.length<2){g.fillText("collecting samples, one a minute",L,T+20);return}
+ const N=H.room.length,span=86400/H.step;
+ let lo=1e9,hi=-1e9;for(const[a]of lines)for(const v of a)if(ok(v)){lo=Math.min(lo,v);hi=Math.max(hi,v)}
+ if(lo>hi){g.fillText("no values yet",L,T+20);return}
+ let step=10;for(const st of[10,20,50,100,200])if((hi-lo)/st<=7){step=st;break}else step=st;
+ lo=Math.floor((lo-1)/step)*step;hi=Math.ceil((hi+1)/step)*step;
+ const x=i=>L+pw*(span-(N-1-i))/span,y=v=>T+ph*(1-(v-lo)/(hi-lo));
+ g.strokeStyle=css("--line");g.lineWidth=1;g.textAlign="right";
+ for(let v=lo;v<=hi;v+=step){g.beginPath();g.moveTo(L,y(v)+.5);g.lineTo(W-R,y(v)+.5);g.stroke();g.fillText(v/10,L-6,y(v)+4)}
+ g.textAlign="center";for(let h=0;h<=24;h+=6){const px=L+pw*(1-h/24);g.fillText(h?"-"+h+" h":"now",Math.min(Math.max(px,L+14),W-R-12),Ht-5)}
+ g.fillStyle=css("--heat");g.globalAlpha=.3;const w=Math.max(pw/span,1);
+ for(let i=0;i<N;i++){
+  if(band.mod&&H.mod[i]>0)g.fillRect(x(i)-w/2,T+ph-ph*.25*H.mod[i]/100,w,ph*.25*H.mod[i]/100);
+  if(H.fl[i]&band.bit)g.fillRect(x(i)-w/2,T+ph-4,w,4)}
+ g.globalAlpha=1;
+ for(const[a,col,dash,wd]of lines){g.strokeStyle=css(col);g.lineWidth=wd||1.6;g.setLineDash(dash||[]);g.beginPath();let pen=false;
+  for(let i=0;i<N;i++){if(!ok(a[i])){pen=false;continue}pen?g.lineTo(x(i),y(a[i])):g.moveTo(x(i),y(a[i]));pen=true}g.stroke();g.setLineDash([])}}
+function draw(){
+ const e=[];
+ plot("c1",H?[[H.target,"--sp",[5,4]],[H.room,"--tx"]]:[[e]],{bit:1});
+ plot("c2",H?[[H.out,"--mu",null,1],[H.req,"--sp",[5,4]],[H.ret,"--cool"],[H.flow,"--heat"]]:[[e]],{bit:2,mod:true})}
+addEventListener("resize",draw);
+async function get(u){const r=await fetch(u,{cache:"no-store"});if(!r.ok)throw new Error(r.status);return r.json()}
+let lastOk=Date.now(),round=0;
+async function loop(){
+ try{
+  const s=await get("/api/status");
+  if(boot!==null&&s.boot!==boot){since=0;shown=0;$("log").textContent="";H=null}
+  boot=s.boot;render(s);
+  addLines(await get("/api/log?since="+since));
+  if(round++%30==0){H=await get("/api/history");draw()}
+  lastOk=Date.now();$("live").className="";$("live").textContent="live";
+ }catch(e){const a=Math.round((Date.now()-lastOk)/1000);$("live").className="dead";$("live").textContent="no answer for "+a+" s"}
+ setTimeout(loop,2000)}
+loop();
+</script>
+</body>
+</html>
