@@ -11,7 +11,7 @@ The project's own code is released under The Unlicense (see `LICENSE`). The part
 | `Thermostat/lib/XPowersLib/` | XPowersLib 0.2.9, power chip driver | Lewis He | MIT, see `LICENSE` in that folder |
 | `Thermostat/lib/TCA9554/` | TCA9554 0.1.2, I/O expander driver | Rob Tillaart | MIT, see `LICENSE` in that folder |
 | `Thermostat/lib/es8311/` | ES8311 audio codec driver | Espressif Systems, adapted to the Arduino Wire library in the Waveshare board examples | Apache-2.0, see `LICENSE` in that folder |
-| `Thermostat/src/lv_font_montserrat_96_digits.c` | Digits of the Montserrat Medium typeface, converted to an LVGL bitmap font | The Montserrat Project Authors | SIL Open Font License 1.1 |
+| `Thermostat/src/lv_font_montserrat_96_digits.c`, `Thermostat/src/lv_font_montserrat_64_digits.c` | Digits of the Montserrat Medium typeface, converted to LVGL bitmap fonts | The Montserrat Project Authors | SIL Open Font License 1.1 |
 | `Thermostat/include/lv_conf.h` | LVGL configuration, based on LVGL's template | LVGL Kft | MIT |
 
 These libraries are bundled at the exact releases Waveshare ships for the ESP32-S3-Touch-LCD-3.5, because the display was brought up and tested with them.

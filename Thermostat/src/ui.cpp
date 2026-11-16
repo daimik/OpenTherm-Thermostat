@@ -35,8 +35,9 @@
 #define C_ICE_TRACK lv_color_hex(0x1B3A5C)
 
 static lv_obj_t *scrHome, *scrBoiler, *scrSettings, *scrSched, *scrClock, *scrSleep;
-static lv_obj_t *zTime, *zTemp, *zLine, *zPill, *zPillLbl;      // sleep screen
-LV_FONT_DECLARE(lv_font_montserrat_96_digits);                  // digits, minus, point and degree sign only
+static lv_obj_t *zDay, *zTime, *zTemp, *zLine, *zPill, *zPillLbl;   // sleep screen
+LV_FONT_DECLARE(lv_font_montserrat_96_digits);                  // digits, minus, point, colon and degree sign only
+LV_FONT_DECLARE(lv_font_montserrat_64_digits);                  // digits, minus, point and degree sign only
 static lv_obj_t *schTime[SCHED_BLOCKS], *schTemp[SCHED_BLOCKS], *schDay[2];
 static bool schWeekend = false;
 static lv_obj_t *ckDay, *ckHour, *ckMin;
@@ -678,31 +679,64 @@ static void build_clock() {
 }
 
 // ---------- Sleep screen ----------
-// Shown after a minute without touch: room temperature large enough to read across the room,
-// mode and target on one line, a pill only while the boiler is asked for heat. Plain text on black,
-// so it costs almost nothing to keep up to date.
+// Shown after a minute without touch. The clock is the largest thing on it, with the weekday above.
+// Under a thin rule: the room temperature, and beside it the mode and target. While heat is asked
+// these share one line with the pill under it; otherwise mode and target stand on two lines.
+// Plain text on black, so it costs almost nothing to keep up to date.
+// The bottom block is centred as a whole by sleep_layout(): a fixed slot for the temperature, a gap,
+// then the mode column. It is laid out again when the mode line or the pill changes, not when the
+// temperature does, so the digits never push anything sideways.
+#define Z_LINE_Y_PILL   203     // mode line while the pill is shown under it
+#define Z_MID_Y         235     // mode text without a pill is centred on this line, the middle of the temperature
+#define Z_TEMP_W        180     // width of the right-aligned temperature label
+#define Z_TEMP_SLOT     160     // room for a typical temperature, "20.6°"; a wider one grows to the left
+#define Z_GAP            24     // between temperature and mode column
+#define Z_PILL_W        132
+#define Z_LINE_SPACE      4     // between the two lines of the mode text
 static void build_sleep() {
   scrSleep = screen();
   lv_obj_t *s = scrSleep;
   lv_obj_set_style_bg_color(s, lv_color_hex(0x05080F), 0);
 
-  zTime = label_at(s, "", &lv_font_montserrat_14, lv_color_hex(0x6F7A99), 16, 12);
+  zDay = label(s, "", &lv_font_montserrat_28, C_MUTED);
+  lv_obj_set_width(zDay, 460);
+  lv_obj_set_style_text_align(zDay, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_align(zDay, LV_ALIGN_TOP_MID, 0, 39);
 
-  zTemp = label(s, "--.-°", &lv_font_montserrat_96_digits, lv_color_hex(0xE8EDFA));
-  lv_obj_set_width(zTemp, 460);
-  lv_obj_set_style_text_align(zTemp, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(zTemp, LV_ALIGN_TOP_MID, 0, 86);
+  zTime = label(s, "--:--", &lv_font_montserrat_96_digits, lv_color_hex(0xE8EDFA));
+  lv_obj_set_width(zTime, 460);
+  lv_obj_set_style_text_align(zTime, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_align(zTime, LV_ALIGN_TOP_MID, 0, 87);
 
-  zLine = label(s, "", &lv_font_montserrat_20, lv_color_hex(0xC9D2EA));
-  lv_obj_set_width(zLine, 460);
-  lv_obj_set_style_text_align(zLine, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(zLine, LV_ALIGN_TOP_MID, 0, 190);
+  card(s, 140, 181, 200, 1, C_TRACK, 0);              // thin rule between clock and temperature
 
-  zPill = card(s, 0, 0, 132, 30, C_CARD2, 15);
-  lv_obj_align(zPill, LV_ALIGN_TOP_MID, 0, 240);
+  zTemp = label(s, "--.-°", &lv_font_montserrat_64_digits, lv_color_hex(0xE8EDFA));
+  lv_obj_set_width(zTemp, Z_TEMP_W);
+  lv_obj_set_style_text_align(zTemp, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_pos(zTemp, 22, 212);
+
+  zLine = label_at(s, "", &lv_font_montserrat_20, lv_color_hex(0xC9D2EA), 226, Z_MID_Y - 11);
+  lv_obj_set_style_text_align(zLine, LV_TEXT_ALIGN_CENTER, 0);     // two lines: centred on each other
+  lv_obj_set_style_text_line_space(zLine, Z_LINE_SPACE, 0);
+
+  zPill = card(s, 226, 233, Z_PILL_W, 30, C_CARD2, 15);
   zPillLbl = label(zPill, "Heating", &lv_font_montserrat_14, C_DARK);
   lv_obj_center(zPillLbl);
   lv_obj_add_flag(zPill, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Places the three bottom widgets. col is the wider of mode line and pill (the pill only counts while shown);
+// the narrower of the two is centred on the wider one, so the pill sits under the middle of the mode line.
+static void sleep_layout(bool pill) {
+  lv_point_t sz;
+  lv_txt_get_size(&sz, lv_label_get_text(zLine), &lv_font_montserrat_20, 0, Z_LINE_SPACE, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+  int col = (pill && sz.x < Z_PILL_W) ? Z_PILL_W : sz.x;
+  int x0 = (480 - (Z_TEMP_SLOT + Z_GAP + col)) / 2;
+  if (!vis_changed(zLine, x0 + 1000 * sz.y + (pill ? 100000 : 0))) return;
+  int xc = x0 + Z_TEMP_SLOT + Z_GAP;
+  lv_obj_set_x(zTemp, x0 + Z_TEMP_SLOT - Z_TEMP_W);
+  lv_obj_set_pos(zLine, xc + (col - sz.x) / 2, pill ? Z_LINE_Y_PILL : Z_MID_Y - sz.y / 2);
+  lv_obj_set_x(zPill, xc + (col - Z_PILL_W) / 2);
 }
 
 void ui_sleep_enter() {
@@ -869,16 +903,18 @@ static void update_settings() {
 
 static void update_sleep() {
   bool off = st.mode == MODE_OFF;
-  if (st.clockOk) set_txtf(zTime, "%s %02u:%02u", kDays[st.dow % 7], st.hour, st.minute);
-  else            set_txt(zTime, "");
+  if (st.clockOk) { set_txt(zDay, kDays[st.dow % 7]); set_txtf(zTime, "%02u:%02u", st.hour, st.minute); }
+  else            { set_txt(zDay, "");                set_txt(zTime, "--:--"); }
   if (st.sensorOk) set_txtf(zTemp, "%.1f°", st.room);
   else             set_txt(zTemp, "--.-°");
   set_tc(zTemp, off ? C_ICE : lv_color_hex(0xE8EDFA));
-  if (off)                        set_txt(zLine, "Off");
-  else if (st.mode == MODE_AUTO)  set_txtf(zLine, "Auto   target %.1f°", st.target);
-  else                            set_txtf(zLine, "Manual   target %.1f°", st.target);
-
   int pill = !st.heating ? 0 : (st.frostActive ? 3 : (st.preheat ? 2 : 1));
+  // With the pill: mode and target on one line. Without it: on two lines, there is room for both.
+  const char *mode = st.mode == MODE_AUTO ? "Auto" : "Manual";
+  if (off)       set_txt(zLine, "Off");
+  else if (pill) set_txtf(zLine, "%s   target %.1f°", mode, st.target);
+  else           set_txtf(zLine, "%s\ntarget %.1f°", mode, st.target);
+
   if (vis_changed(zPill, pill)) {
     static const char *const kPill[4] = {"", "Heating", "Preheating", "Frost guard"};
     if (pill == 0) lv_obj_add_flag(zPill, LV_OBJ_FLAG_HIDDEN);
@@ -888,6 +924,7 @@ static void update_sleep() {
       if (pill == 3) set_gradient(zPill, C_COOL, C_COOL2); else set_gradient(zPill, C_WARM, C_HEAT2);
     }
   }
+  sleep_layout(pill != 0);
 }
 
 static void refresh(lv_obj_t *scr) {

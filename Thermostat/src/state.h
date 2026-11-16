@@ -65,7 +65,7 @@ struct ThermoState {
   uint16_t nextChangeMin = 0;     // minutes since midnight of the next block start
 
   // display settings
-  bool sleepScreen  = true;     // after a minute without touch show only temperature, mode and target
+  bool sleepScreen  = true;     // after a minute without touch show only clock, temperature, mode and target
   uint8_t brightness = 70;
   bool    sounds     = true;
   uint8_t volume     = 60;

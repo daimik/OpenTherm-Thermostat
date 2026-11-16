@@ -152,7 +152,7 @@ Everything else on the display (LCD, touch, power chip, clock, speaker) is on th
 - 📅 **Weekly schedule**: Mon-Fri and Sat-Sun, four blocks each
 - ⏱️ **Preheating**: learns how fast the room warms and starts early
 - 🌤️ **Weather-compensated** flow temperature when an outdoor value is available
-- 😴 **Sleep screen** after 60 seconds: big room temperature, mode and target
+- 😴 **Sleep screen** after 60 seconds: big clock with the weekday, room temperature, mode and target
 - 📈 **Boiler screen**: temperatures, pressure, modulation, 2-hour chart, fault reset
 - 🔊 **Sounds** with volume control, brightness control
 
